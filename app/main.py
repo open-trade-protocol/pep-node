@@ -23,7 +23,7 @@ sys.path.insert(0, str(project_root))
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.api.v1.router import router as v1_router
-from app.services.federation.sync import FederationSync
+from app.services.federation.service import FederationService
 from app.services.ai.assistant import AIAssistant
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -37,10 +37,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logging.info("Starting OpenTrade Peer Node...")
     logging.info(f"Node ID: {settings.node_id}")
-    logging.info(f"Category: {settings.node.category}")
+    logging.info(f"Category: {settings.category}")
     
     # Initialize services
-    sync = FederationSync()
+    sync = FederationService()
     await sync.start()
     
     ai_assistant = AIAssistant()
