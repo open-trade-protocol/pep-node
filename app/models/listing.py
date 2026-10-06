@@ -12,6 +12,7 @@ from typing import Optional
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import Column, DateTime
 from sqlmodel import Field as SQLModelField, SQLModel
 
 
@@ -50,8 +51,14 @@ class ListingTable(SQLModel, table=True):
     condition: str = SQLModelField(max_length=20)  # stores Condition enum value
     seller_node_id: str = SQLModelField(max_length=255)
     seller_reputation: Optional[float] = SQLModelField(default=None, ge=0, le=100)
-    created_at: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=True)),
+    )
+    updated_at: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=True)),
+    )
 
 
 def table_to_pydantic(t: ListingTable) -> "Listing":

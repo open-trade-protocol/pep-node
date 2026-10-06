@@ -55,21 +55,21 @@ def _ensure_engines():
         sync_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
     _sync_engine = create_engine(sync_url, echo=False, pool_pre_ping=True)
 
-    # Async engine for async queries — use create_async_engine for all
+    # Async engine — ensure +asyncpg driver for PostgreSQL URLs
     if is_sqlite:
-        _async_engine = create_async_engine(
-            db_url,
-            echo=False,
-            pool_pre_ping=True,
-        )
+        async_url = db_url
     else:
-        _async_engine = create_async_engine(
-            db_url,
-            echo=False,
-            pool_pre_ping=True,
-            pool_size=10,
-            max_overflow=20,
-        )
+        if "+asyncpg" not in db_url:
+            async_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+        else:
+            async_url = db_url
+    _async_engine = create_async_engine(
+        async_url,
+        echo=False,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+    )
 
     _async_session_factory = sa_sessionmaker(
         _async_engine,

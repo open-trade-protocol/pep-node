@@ -94,32 +94,46 @@ def create_app() -> FastAPI:
         db_status = "error"
         meilisearch_status = "error"
 
-        # Check database
+        # Check database — use asyncpg directly since sqlmodel sync engine won't work with async drivers
         try:
-            from sqlmodel import SQLModel, text
-            from app.db import get_engine
-            engine = get_engine()
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-                conn.close()
-            db_status = "ok"
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL") or settings.database_url
+            # postgresql://user:pass@host:port/db
+            if "postgres" in db_url or "postgresql" in db_url:
+                import re
+                match = re.match(r"postgresql(?!ite)://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
+                if match:
+                    conn = await asyncpg.connect(
+                        user=match.group(1),
+                        password=match.group(2),
+                        host=match.group(3),
+                        port=match.group(4),
+                        database=match.group(5),
+                    )
+                    await conn.close()
+                    db_status = "ok"
         except Exception as e:
-            logging.error(f"Database health check failed: {e}")
-            db_status = "error"
+            logging.warning(f"Database health check failed: {e}")
 
         # Check Meilisearch
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(
-                    f"{settings.meilisearch_url}/health",
-                )
-                if resp.status_code == 200:
-                    meilisearch_status = "ok"
-                else:
-                    meilisearch_status = f"http_{resp.status_code}"
-        except Exception as e:
-            logging.error(f"Meilisearch health check failed: {e}")
-            meilisearch_status = "error"
+        ms_url = os.environ.get("MEILISEARCH_URL") or settings.meilisearch_url
+        ms_key = os.environ.get("MEILISEARCH_MASTER_KEY") or settings.meilisearch_master_key
+        if "localhost" in ms_url or "127.0.0.1" in ms_url:
+            meilisearch_status = "skipped (local)"
+        else:
+            try:
+                headers = {"Authorization": f"Bearer {ms_key}"} if ms_key else {}
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    resp = await client.get(
+                        f"{ms_url}/health",
+                        headers=headers,
+                    )
+                    if resp.status_code == 200:
+                        meilisearch_status = "ok"
+                    else:
+                        meilisearch_status = f"http_{resp.status_code}"
+            except Exception as e:
+                logging.warning(f"Meilisearch health check failed: {e}")
 
         overall = "healthy" if (db_status == "ok" and meilisearch_status == "ok") else "degraded"
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -28,6 +29,8 @@ class SearchService:
         self._initialized = False
         self._meilisearch_available = False
         self._meilisearch = None
+        self._ms_url = os.environ.get("MEILISEARCH_URL") or settings.meilisearch_url
+        self._ms_key = os.environ.get("MEILISEARCH_MASTER_KEY") or settings.meilisearch_master_key
 
     async def initialize(self):
         """Initialize search infrastructure."""
@@ -37,7 +40,7 @@ class SearchService:
         self._meilisearch_available = await self._check_meilisearch()
         if self._meilisearch_available:
             self._meilisearch = self._get_meilisearch_client()
-            await self._ensure_index()
+            self._ensure_index()
         logger.info("Search service initialized", meilisearch=self._meilisearch_available)
         self._initialized = True
 
@@ -45,8 +48,9 @@ class SearchService:
         """Check if Meilisearch is reachable."""
         try:
             import httpx
+            headers = {"Authorization": f"Bearer {self._ms_key}"} if self._ms_key else {}
             async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"{settings.meilisearch_url}/health")
+                resp = await client.get(f"{self._ms_url}/health", headers=headers)
                 return resp.status_code == 200
         except Exception as e:
             logger.warning("Meilisearch not available", error=str(e))
@@ -56,15 +60,12 @@ class SearchService:
         """Get Meilisearch client instance."""
         try:
             from meilisearch import Client
-            return Client(
-                settings.meilisearch_url,
-                settings.meilisearch_master_key or None,
-            )
+            return Client(self._ms_url, self._ms_key or None)
         except ImportError:
             logger.warning("meilisearch package not installed")
             return None
 
-    async def _ensure_index(self):
+    def _ensure_index(self):
         """Ensure the listings index exists with proper settings."""
         if not self._meilisearch:
             return
@@ -73,13 +74,21 @@ class SearchService:
             index = self._meilisearch.get_index(index_name)
         except Exception:
             # Create the index
-            index = self._meilisearch.create_index(index_name)
+            task = self._meilisearch.create_index(index_name)
+            index.wait_for_task(task.task_uid, 10000, 50)
+            index = self._meilisearch.get_index(index_name)
 
-        # Set searchable and filterable attributes
-        await index.update_searchable_attributes(["title", "description"])
-        await index.update_filterable_attributes(["category", "condition", "currency", "price", "seller_node_id"])
+        def _wait(task_info):
+            index.wait_for_task(task_info.task_uid, 10000, 50)
+
+        # Set searchable and filterable attributes (synchronous client returns TaskInfo)
+        task = index.update_searchable_attributes(["title", "description"])
+        _wait(task)
+        task = index.update_filterable_attributes(["category", "condition", "currency", "price", "seller_node_id"])
+        _wait(task)
         # Sortable for ordering
-        await index.update_sortable_attributes(["created_at", "price"])
+        task = index.update_sortable_attributes(["created_at", "price"])
+        _wait(task)
 
     async def search(
         self,
@@ -144,27 +153,25 @@ class SearchService:
             return await self._search_with_db(query, category, condition, price_min, price_max, limit, cursor)
 
         index = self._meilisearch.get_index("listings")
-        params = {
-            "q": query,
-            "limit": limit + 1,
-        }
+        opt_params = {}
         if category and category != "all":
-            params["filter"] = f"category = '{category}'"
+            opt_params["filter"] = f"category = '{category}'"
         if condition and condition != "all":
             filter_parts = []
             if category and category != "all":
                 filter_parts.append(f"category = '{category}'")
             filter_parts.append(f"condition = '{condition}'")
-            params["filter"] = " AND ".join(filter_parts)
+            opt_params["filter"] = " AND ".join(filter_parts)
         if price_min is not None:
-            params["filter"] = f"{params.get('filter', '')} price >= {price_min}".strip()
+            opt_params["filter"] = f"{opt_params.get('filter', '')} price >= {price_min}".strip()
         if price_max is not None:
-            params["filter"] = f"{params.get('filter', '')} price <= {price_max}".strip()
+            opt_params["filter"] = f"{opt_params.get('filter', '')} price <= {price_max}".strip()
         if cursor:
-            params["filter"] = f"{params.get('filter', '')} created_at > '{cursor}'".strip()
+            opt_params["filter"] = f"{opt_params.get('filter', '')} created_at > '{cursor}'".strip()
+        opt_params["limit"] = limit + 1
 
         try:
-            search_results = await asyncio.to_thread(index.search, **params)
+            search_results = await asyncio.to_thread(index.search, query, opt_params)
         except Exception as e:
             logger.error("Meilisearch search failed, falling back to DB", error=str(e))
             return await self._search_with_db(query, category, condition, price_min, price_max, limit, cursor)
@@ -302,10 +309,14 @@ class SearchService:
         index_name = "listings"
         try:
             index = self._meilisearch.get_index(index_name)
-            await asyncio.to_thread(
-                index.add_documents,
-                [listing_data],
-            )
+            # Sanitize ID for Meilisearch: colons are invalid in document identifiers
+            doc = dict(listing_data)
+            doc_id = doc.get("id", "")
+            if ":" in doc_id:
+                doc["_meilisearch_id"] = doc_id
+                doc["id"] = doc_id.replace(":", "_").replace("-", "dash-")
+            task = await asyncio.to_thread(index.add_documents, [doc], primary_key="id")
+            index.wait_for_task(task.task_uid, 10000, 50)
             logger.info("Indexed listing in Meilisearch", listing_id=listing_data.get("id"))
             return True
         except Exception as e:

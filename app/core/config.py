@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     """Application settings loaded from environment or config file."""
     
     model_config = SettingsConfigDict(
-        env_prefix="OT_",
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
@@ -32,12 +31,12 @@ class Settings(BaseSettings):
     # Database — accepts DATABASE_URL or OT_DATABASE_URL env vars, falls back to SQLite for local dev
     database_url: str = "sqlite+aiosqlite:///./pepnode.db"
     
-    # Search
+    # Search — direct env var names (no prefix)
     meilisearch_url: str = "http://localhost:7700"
     meilisearch_master_key: str = ""
     qdrant_url: str = "http://localhost:6333"
     
-    # Federation
+    # Federation — direct env var names
     federation_index_url: str = "https://api.opentradeprotocol.com/v1"
     federation_heartbeat_interval: int = 300  # 5 minutes
     federation_sync_interval: int = 60  # 1 minute
