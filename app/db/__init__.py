@@ -128,6 +128,19 @@ async def init_db():
     SQLModel.metadata.create_all(_sync_engine)
 
 
+def create_db_and_tables():
+    """Create the database tables for all SQLModel models.
+
+    Called on application startup (see app.main.lifespan).
+    Idempotent: existing tables are left untouched, so data
+    survives container restarts (PostgreSQL volume is persistent).
+    """
+    _ensure_engines()
+    # Ensure table definitions are registered in SQLModel.metadata
+    import app.models.listing  # noqa: F401
+    SQLModel.metadata.create_all(_sync_engine)
+
+
 async def drop_all_tables():
     """Drop all tables. ONLY for development/testing."""
     _ensure_engines()

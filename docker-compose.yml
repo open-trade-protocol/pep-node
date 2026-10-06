@@ -1,33 +1,44 @@
-version: '3.8'
-
 services:
   peer-node:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    container_name: pep-node
     ports:
       - "8000:8000"
     environment:
       - OT_NODE_ID=snow.opentradeprotocol.com
-      - OT_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/opentrade
+      # PostgreSQL via SQLModel (sync psycopg2 + async asyncpg share this URL)
+      - DATABASE_URL=postgresql://opentrade:secret@db:5432/pepnode
+      - OT_DATABASE_URL=postgresql://opentrade:secret@db:5432/pepnode
       - OT_MEILISEARCH_URL=http://meilisearch:7700
       - OT_QDRANT_URL=http://qdrant:6333
       - OT_FEDERATION_INDEX_URL=https://api.opentradeprotocol.com/v1
     depends_on:
-      - db
-      - meilisearch
-      - qdrant
+      db:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    restart: unless-stopped
     volumes:
       - ./config:/app/config
 
   db:
     image: postgres:16-alpine
+    container_name: postgres
     environment:
-      - POSTGRES_DB=opentrade
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=pepnode
+      - POSTGRES_USER=opentrade
+      - POSTGRES_PASSWORD=secret
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opentrade -d pepnode"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
