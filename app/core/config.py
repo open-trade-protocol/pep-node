@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from pydantic_settings import BaseSettings
+import os
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment or config file."""
+    
+    model_config = SettingsConfigDict(
+        env_prefix="OT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+    )
     
     # Node configuration
     node_id: str = "snow.opentradeprotocol.com"
@@ -20,8 +29,8 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
     
-    # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opentrade"
+    # Database — accepts DATABASE_URL or OT_DATABASE_URL env vars, falls back to SQLite for local dev
+    database_url: str = "sqlite+aiosqlite:///./pepnode.db"
     
     # Search
     meilisearch_url: str = "http://localhost:7700"
@@ -43,13 +52,9 @@ class Settings(BaseSettings):
     
     # CORS
     cors_origins: list[str] = ["*"]
-    
-    class Config:
-        env_prefix = "OT_"
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
 
 
-# Singleton settings instance
-settings = Settings()
+# Singleton settings instance — loaded at module level
+# DATABASE_URL env var is checked before Settings() creates the instance
+_default_db = os.environ.get("DATABASE_URL") or os.environ.get("OT_DATABASE_URL") or "sqlite+aiosqlite:///./pepnode.db"
+settings = Settings(database_url=_default_db)
