@@ -121,4 +121,6 @@ class ListingsResponse(BaseModel):
     """Response wrapper for the GET /listings endpoint."""
 
     total: int
+    limit: int = 20
+    offset: int = 0
     items: list[Listing]

@@ -26,7 +26,7 @@ from app.api.v1.router import router as v1_router
 from app.api.v1.search_router import router as search_router
 from app.services.federation.service import FederationService
 from app.services.ai.assistant import AIAssistant
-from app.db import init_db, drop_all_tables
+from app.db import init_db, drop_all_tables, create_db_and_tables
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,9 +42,9 @@ async def lifespan(app: FastAPI):
     logging.info(f"Node ID: {settings.node_id}")
     logging.info(f"Category: {settings.category}")
 
-    # Initialize database tables
+    # Initialize database tables (SQLModel -> PostgreSQL)
     try:
-        await init_db()
+        create_db_and_tables()
         logging.info("Database tables initialized successfully")
     except Exception as e:
         logging.warning(f"Database init skipped (will work on first request): {e}")
@@ -85,8 +85,10 @@ def create_app() -> FastAPI:
     )
 
     # Include API routers
-    app.include_router(v1_router, prefix="/v1")
-    app.include_router(search_router, prefix="/v1")
+    # NOTE: routes inside the routers are already declared with the full
+    # /api/v1/... path (per OpenAPI spec), so no extra prefix is applied here.
+    app.include_router(v1_router)
+    app.include_router(search_router)
 
     # Health check
     @app.get("/health")
